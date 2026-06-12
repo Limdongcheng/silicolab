@@ -66,10 +66,10 @@ pub fn reduce_transparency() -> bool {
     }
     const TTL: Duration = Duration::from_millis(500);
 
-    if let Some((read_at, value)) = CACHE.with(Cell::get) {
-        if read_at.elapsed() < TTL {
-            return value;
-        }
+    if let Some((read_at, value)) = CACHE.with(Cell::get)
+        && read_at.elapsed() < TTL
+    {
+        return value;
     }
     let value = query_reduce_transparency();
     CACHE.with(|cache| cache.set(Some((Instant::now(), value))));
