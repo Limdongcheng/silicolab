@@ -581,6 +581,13 @@ pub fn switch_provider_model(state: &mut AppState, provider: &str, model: &str) 
     // error note doesn't bleed onto the newly selected one. The fetched model
     // ids are keyed per provider, so they survive the switch.
     state.ui.agent.model_fetch = ModelFetchStatus::Idle;
+    // Drop any in-flight fetch for the prior provider too. It guards
+    // `fetch_models` (which no-ops while a job is live), so leaving it would
+    // wedge the new provider's "Refresh models" button; and its late result
+    // would otherwise raise a "Listed N models" toast for a provider the user
+    // already left. The worker thread's send simply fails into the dropped
+    // receiver.
+    state.jobs.model_fetch = None;
     persist(state);
     refresh_key_status(state);
 }
@@ -1000,5 +1007,23 @@ mod tests {
         });
         assert!(!still_has_reasoning);
         assert_eq!(state.config.assistant.model, "claude-opus-4-8");
+    }
+
+    #[test]
+    fn switching_provider_drops_inflight_model_fetch() {
+        let mut state = AppState::scratch(Default::default(), Vec::new());
+        let (_sender, receiver) = std::sync::mpsc::channel();
+        state.jobs.model_fetch = Some(crate::frontend::jobs::RunningModelFetch {
+            provider_id: "anthropic".to_string(),
+            receiver,
+        });
+        state.ui.agent.model_fetch = ModelFetchStatus::Fetching;
+
+        switch_provider_model(&mut state, "openai", "gpt-5.1");
+
+        // The stale job must be cleared so the new provider's Refresh button
+        // isn't wedged, and no late toast fires for the provider just left.
+        assert!(state.jobs.model_fetch.is_none());
+        assert_eq!(state.ui.agent.model_fetch, ModelFetchStatus::Idle);
     }
 }

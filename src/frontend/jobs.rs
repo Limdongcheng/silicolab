@@ -352,14 +352,23 @@ fn fetch_model_ids(
     let agent = ureq::Agent::new_with_config(config);
 
     let response = match kind {
-        ProviderKind::OpenAiCompat => agent
-            .get(format!("{}/models", base_url.trim_end_matches('/')))
-            .header("authorization", &format!("Bearer {api_key}"))
-            .call(),
-        // The Anthropic models list lives at the fixed API root; its version
-        // header matches the completions adapter (`anthropic.rs`).
+        ProviderKind::OpenAiCompat => {
+            let request = agent.get(format!("{}/models", base_url.trim_end_matches('/')));
+            // Only send a Bearer token when we actually have a key: a keyless
+            // local server (e.g. Ollama) lists models without auth, and an empty
+            // `Bearer ` header is malformed rather than helpful.
+            let request = if api_key.is_empty() {
+                request
+            } else {
+                request.header("authorization", &format!("Bearer {api_key}"))
+            };
+            request.call()
+        }
+        // Honour the same base-URL override the completion path uses (e.g. a
+        // proxy), defaulting to the Anthropic API root; the version header
+        // matches the completions adapter (`anthropic.rs`).
         ProviderKind::Native => agent
-            .get("https://api.anthropic.com/v1/models")
+            .get(format!("{}/models", base_url.trim_end_matches('/')))
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .call(),
